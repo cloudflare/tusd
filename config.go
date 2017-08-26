@@ -25,6 +25,7 @@ type Config struct {
 	// absolute URL containing a scheme, e.g. "http://tus.io"
 	BasePath string
 	isAbs    bool
+	GetFileURL GetFileURLFunc
 	// NotifyCompleteUploads indicates whether sending notifications about
 	// completed uploads using the CompleteUploads channel should be enabled.
 	NotifyCompleteUploads bool
@@ -47,23 +48,25 @@ func (config *Config) validate() error {
 		config.Logger = log.New(os.Stdout, "[tusd] ", 0)
 	}
 
-	base := config.BasePath
-	uri, err := url.Parse(base)
-	if err != nil {
-		return err
-	}
+	if config.GetFileURL == nil {
+		base := config.BasePath
+		uri, err := url.Parse(base)
+		if err != nil {
+			return err
+		}
 
-	// Ensure base path ends with slash to remove logic from absFileURL
-	if base != "" && string(base[len(base)-1]) != "/" {
-		base += "/"
-	}
+		// Ensure base path ends with slash to remove logic from absFileURL
+		if base != "" && string(base[len(base)-1]) != "/" {
+			base += "/"
+		}
 
-	// Ensure base path begins with slash if not absolute (starts with scheme)
-	if !uri.IsAbs() && len(base) > 0 && string(base[0]) != "/" {
-		base = "/" + base
+		// Ensure base path begins with slash if not absolute (starts with scheme)
+		if !uri.IsAbs() && len(base) > 0 && string(base[0]) != "/" {
+			base = "/" + base
+		}
+		config.BasePath = base
+		config.isAbs = uri.IsAbs()	
 	}
-	config.BasePath = base
-	config.isAbs = uri.IsAbs()
 
 	if config.StoreComposer == nil {
 		config.StoreComposer = newStoreComposerFromDataStore(config.DataStore)

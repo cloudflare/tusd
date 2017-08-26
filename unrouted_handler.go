@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -28,6 +29,8 @@ type HTTPError interface {
 	error
 	StatusCode() int
 }
+
+type GetFileURLFunc func(r *http.Request, ID string) string
 
 type httpError struct {
 	error
@@ -67,8 +70,7 @@ var (
 type UnroutedHandler struct {
 	config        Config
 	composer      *StoreComposer
-	isBasePathAbs bool
-	basePath      string
+	absFileURL	  GetFileURLFunc
 	logger        *log.Logger
 	extensions    string
 
@@ -116,11 +118,26 @@ func NewUnroutedHandler(config Config) (*UnroutedHandler, error) {
 		extensions += ",concatenation"
 	}
 
+	absFileURL := config.GetFileURL
+	if absFileURL == nil {
+		absFileURL = func(r *http.Request, id string) string {
+			if config.isAbs {
+				return config.BasePath + id
+			}
+
+			// Read origin and protocol from request
+			host, proto := getHostAndProtocol(r, config.RespectForwardedHeaders)
+
+			url := proto + "://" + host + config.BasePath + id
+
+			return url
+		}
+	}
+
 	handler := &UnroutedHandler{
 		config:            config,
 		composer:          config.StoreComposer,
-		basePath:          config.BasePath,
-		isBasePathAbs:     config.isAbs,
+		absFileURL:		   absFileURL,
 		CompleteUploads:   make(chan FileInfo),
 		TerminatedUploads: make(chan FileInfo),
 		UploadProgress:    make(chan FileInfo),
@@ -647,21 +664,6 @@ func (handler *UnroutedHandler) sendResp(w http.ResponseWriter, r *http.Request,
 	handler.log("ResponseOutgoing", "status", strconv.Itoa(status), "method", r.Method, "path", r.URL.Path)
 }
 
-// Make an absolute URLs to the given upload id. If the base path is absolute
-// it will be prepended else the host and protocol from the request is used.
-func (handler *UnroutedHandler) absFileURL(r *http.Request, id string) string {
-	if handler.isBasePathAbs {
-		return handler.basePath + id
-	}
-
-	// Read origin and protocol from request
-	host, proto := getHostAndProtocol(r, handler.config.RespectForwardedHeaders)
-
-	url := proto + "://" + host + handler.basePath + id
-
-	return url
-}
-
 type progressWriter struct {
 	Offset int64
 }
@@ -848,12 +850,16 @@ func parseConcat(header string) (isPartial bool, isFinal bool, partialUploads []
 }
 
 // extractIDFromPath pulls the last segment from the url provided
-func extractIDFromPath(url string) (string, error) {
-	result := reExtractFileID.FindStringSubmatch(url)
+func extractIDFromPath(Url string) (string, error) {
+	result := reExtractFileID.FindStringSubmatch(Url)
 	if len(result) != 2 {
 		return "", ErrNotFound
 	}
-	return result[1], nil
+	ret, err := url.PathUnescape(result[1])
+	if err != nil {
+		return "", ErrNotFound
+	}
+	return ret, nil
 }
 
 func i64toa(num int64) string {
