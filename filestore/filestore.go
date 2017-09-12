@@ -56,12 +56,13 @@ func (store FileStore) UseIn(composer *tusd.StoreComposer) {
 	composer.UseLocker(store)
 }
 
-func (store FileStore) NewUpload(info tusd.FileInfo) (id string, err error) {
-	id = uid.Uid()
-	info.ID = id
+func (store FileStore) NewUpload(info tusd.FileInfo) (string, error) {
+	if info.ID == "" {
+		info.ID = uid.Uid()
+	}
 
 	// Create .bin file with no content
-	file, err := os.OpenFile(store.binPath(id), os.O_CREATE|os.O_WRONLY, defaultFilePerm)
+	file, err := os.OpenFile(store.binPath(info.ID), os.O_CREATE|os.O_WRONLY, defaultFilePerm)
 	if err != nil {
 		if os.IsNotExist(err) {
 			err = fmt.Errorf("upload directory does not exist: %s", store.Path)
@@ -71,8 +72,8 @@ func (store FileStore) NewUpload(info tusd.FileInfo) (id string, err error) {
 	defer file.Close()
 
 	// writeInfo creates the file by itself if necessary
-	err = store.writeInfo(id, info)
-	return
+	err = store.writeInfo(info.ID, info)
+	return info.ID, err
 }
 
 func (store FileStore) WriteChunk(id string, offset int64, src io.Reader) (int64, error) {
